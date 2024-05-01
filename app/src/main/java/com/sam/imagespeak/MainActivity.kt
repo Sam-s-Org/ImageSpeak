@@ -7,31 +7,21 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
+import com.sam.imagespeak.ui.AppViewModel
 import com.sam.imagespeak.ui.theme.ImageSpeakTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -45,7 +35,7 @@ import retrofit2.http.Body
 import retrofit2.http.POST
 import java.util.concurrent.TimeUnit
 
-private const val BASE_URL = "https://40225bb0466c3f04cb5d0f746ad16ed3.serveo.net"
+private const val BASE_URL = "https://ec87ab2955d2f02624a85622a5dd878c.serveo.net"
 
 val client = OkHttpClient.Builder()
     .connectTimeout(30, TimeUnit.SECONDS)
@@ -68,6 +58,9 @@ data class Response(
 interface AppApiService {
     @POST("caps")
     suspend fun postRequest(@Body request: String): Response
+
+    @POST("query")
+    suspend fun queryRequest(@Body query: String): Response
 }
 
 object AppApi {
@@ -78,7 +71,7 @@ object AppApi {
 
 class MainActivity : ComponentActivity() {
 
-    private val cameraPermissionRequest =
+    private val permissionRequest =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -86,28 +79,22 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         when (PackageManager.PERMISSION_GRANTED) {
             ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) -> {}
-            else -> cameraPermissionRequest.launch(Manifest.permission.CAMERA)
+            else -> permissionRequest.launch(Manifest.permission.CAMERA)
         }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_DENIED) {
+            permissionRequest.launch(Manifest.permission.CAMERA)
+        }
+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_DENIED) {
+            permissionRequest.launch(Manifest.permission.RECORD_AUDIO)
+        }
+        ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
         setContent {
+            val viewModel: AppViewModel = viewModel()
             ImageSpeakTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    val paddingValues = innerPadding
-                    CameraPreviewScreen()
-//                    App(Modifier.padding(innerPadding))
-                }
-            }
-        }
-    }
-
-    private fun setCameraPreview() {
-        setContent {
-            ImageSpeakTheme {
-                // A surface container using the 'background' color from the theme
-                Surface(
-                        modifier = Modifier.fillMaxSize(),
-                        color = MaterialTheme.colorScheme.background
-                ) {
-                    CameraPreviewScreen()
+//                    ClickCamera(viewModel)
+                    App(Modifier.padding(innerPadding))
                 }
             }
         }
@@ -116,33 +103,17 @@ class MainActivity : ComponentActivity() {
 
 var response by mutableStateOf("")
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun App(modifier: Modifier = Modifier) {
-    val coroutineScope = rememberCoroutineScope()
-    var t1 by remember { mutableStateOf("") }
-    Column(
-            modifier = modifier
-                .fillMaxSize()
-                .background(Color.Black),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-    ) {
-        Image(
-                painterResource(R.drawable.ic_launcher_foreground),
-                "Logo"
-        )
-        Text(text = "ImageSpeak")
-        OutlinedTextField(
-                value = t1,
-                onValueChange = { t1 = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Enter something") },
-                placeholder = { Text("Enter something") }
-        )
-        Button(onClick = { sendRequest(coroutineScope, t1) {} }) {
-            Text(text = "Send Request")
+fun App(modifier: Modifier = Modifier, viewModel: AppViewModel = viewModel()) {
+    val pagerState = rememberPagerState {2}
+    
+    HorizontalPager(state = pagerState) {page ->
+        when (page) {
+            0 -> ClickCamera(viewModel)
+            1 -> NavCamera()
+            else -> ClickCamera(viewModel)
         }
-        Text(text = response)
     }
 }
 
@@ -157,10 +128,13 @@ fun sendRequest(coroutineScope: CoroutineScope, t1: String = "", callback: (Stri
     }
 }
 
-@Preview(showBackground = true)
-@Composable
-fun GreetingPreview() {
-    ImageSpeakTheme {
-        App()
+fun imageQuery(coroutineScope: CoroutineScope, query: String, callback: (String) -> Unit) {
+    coroutineScope.launch {
+        response = try {
+            AppApi.retrofitService.queryRequest(query).answer ?: ""
+        } catch (e: Exception) {
+            "Server did not send a response. Error : $e"
+        }
+        callback(response)
     }
 }
